@@ -157,6 +157,7 @@ class CondMcBsmABC(smile.OptSmileABC, abc.ABC):
 
     def rv_normal(self, spawn=0):
         if self.antithetic:
+            self.rng_spawn = [np.random.default_rng(seed) for seed in range(10)]
             zz = self.rng_spawn[spawn].standard_normal(size=self.n_path // 2)
             zz = np.stack([zz, -zz], axis=1).flatten()
         else:
