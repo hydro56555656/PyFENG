@@ -133,6 +133,5 @@ vol22 = Path.vol_step_euler(0.25, 0.2, 'exp', 1)
 vol23 = Path.vol_step_euler(0.25, 0.2, 'exact', 1)
 
 vol, spot = Path.cond_vol_step(1, 0.2, 100, 1)
-vol212 = Path.cond_vol_step(1000, 0.2)
 
 print(vol21)
