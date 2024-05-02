@@ -55,24 +55,38 @@ class LambdaSABRhMcTimeDisc(sv.SvABC, sv.CondMcBsmABC):
 		mr_square, theta_square, vov_square = np.square(mr), np.square(theta), np.square(vov)
 		vol_0_square = np.square(vol_0)
 
-		# exact mean and variance
-		exact_mean = theta * (1 - np.exp(-mr * dt)) + vol_0 * np.exp(mr * dt)
-		if mr / vov_square == 1 / 2:
-			exact_mean_square = 2 * theta_square * (
-					np.exp(-mr * dt) + mr * dt - 1) + 2 * theta * vol_0 * (1 - np.exp(-mr * dt)) + vol_0_square
-		elif mr / vov_square == 1:
-			exact_mean_square = 2 * theta_square - 2 * (mr * dt + 1) * theta_square * np.exp(
-				-mr * dt) + 2 * mr * theta * vol_0 * dt * np.exp(-mr * dt) + vol_0_square * np.exp(-mr * dt)
-		else:
-			exact_mean_square = (2 * mr * theta_square) / (2 * mr - vov_square) \
-								- (2 * mr * theta_square) / (mr - vov_square) * np.exp(-mr * dt) \
-								+ (2 * mr_square * theta_square) / (mr - vov_square) / (
-										2 * mr - vov_square) * np.exp(-2 * mr * dt + vov_square * dt) \
-								+ 2 * mr * theta * vol_0 * np.exp(-mr * dt) / (mr - vov_square) \
-								- 2 * mr * theta * vol_0 / (mr - vov_square) * np.exp(-2 * mr * dt + vov_square * dt) \
-								+ vol_0_square * np.exp(-2 * mr * dt + vov_square * dt)
-		exact_var = exact_mean_square - np.square(exact_mean)
+		# # exact mean and variance
+		# exact_mean = theta * (1 - np.exp(-mr * dt)) + vol_0 * np.exp(mr * dt)
+		# if mr / vov_square == 1 / 2:
+		# 	exact_mean_square = 2 * theta_square * (
+		# 			np.exp(-mr * dt) + mr * dt - 1) + 2 * theta * vol_0 * (1 - np.exp(-mr * dt)) + vol_0_square
+		# elif mr / vov_square == 1:
+		# 	exact_mean_square = 2 * theta_square - 2 * (mr * dt + 1) * theta_square * np.exp(
+		# 		-mr * dt) + 2 * mr * theta * vol_0 * dt * np.exp(-mr * dt) + vol_0_square * np.exp(-mr * dt)
+		# else:
+		# 	exact_mean_square = (2 * mr * theta_square) / (2 * mr - vov_square) \
+		# 						- (2 * mr * theta_square) / (mr - vov_square) * np.exp(-mr * dt) \
+		# 						+ (2 * mr_square * theta_square) / (mr - vov_square) / (
+		# 								2 * mr - vov_square) * np.exp(-2 * mr * dt + vov_square * dt) \
+		# 						+ 2 * mr * theta * vol_0 * np.exp(-mr * dt) / (mr - vov_square) \
+		# 						- 2 * mr * theta * vol_0 / (mr - vov_square) * np.exp(-2 * mr * dt + vov_square * dt) \
+		# 						+ vol_0_square * np.exp(-2 * mr * dt + vov_square * dt)
+		# exact_var = exact_mean_square - np.square(exact_mean)
 
+		#version 2021
+		exact_mean = theta /mr* (1 - np.exp(-mr * dt)) + vol_0 * np.exp(-mr * dt)
+		if mr / vov_square == 1:
+			exact_mean_square = np.exp(-mr*dt)*(2 * mr *theta *(dt*vol_0-vol_0/mr-dt*theta)+vol_0**2)-np.exp(-2*mr*dt)*(vol_0-theta)**2+theta**2
+
+		elif mr / vov_square == 1/2:
+			exact_mean_square = (np.exp(-mr*dt)*(4*theta*(theta-vol_0))-np.exp(-2*mr*dt)(vol_0-theta)**2
+			+2*theta**2*mr*dt-3*theta**2+2*theta*vol_0+vol_0**2)
+		else:
+			exact_mean_square = ((theta**2*vov_square)/(2*mr-vov_square)+np.exp(-mr*dt)*(2*vov_square*(vol_0-theta)*theta)/(mr-vov_square)
+								-np.exp(-2*mr*dt)*(vol_0-mr)**2+np.exp((vov_square-2*mr)*dt)*(vol_0_square-
+								(2*vol_0*theta*mr)/(mr-vov_square)+(2*mr_square*theta)/((2*mr-vov_square)*(mr-vov_square)))
+								)
+		exact_var = exact_mean_square - np.square(exact_mean)
 		# time discrimination for vol_t
 		if model_replace == 'original':
 			vol_t = vol_0 + mr * (theta - vol_0) * dt + vov * vol_0 * np.sqrt(dt) * zz
