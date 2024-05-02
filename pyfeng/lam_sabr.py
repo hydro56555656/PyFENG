@@ -7,10 +7,10 @@ from pyfeng import bsm
 # 0: simulation of variance (gamma/ncx2/normal)
 
 
-class GarchMcTimeDisc(sv.SvABC, sv.CondMcBsmABC):
+class LambdaSABRhMcTimeDisc(sv.SvABC, sv.CondMcBsmABC):
 	"""
 	Garch model with conditional Monte-Carlo simulation
-	The SDE of SV is: dv_t = mr * (theta - v_t) dt + vov * v_t dB_T
+	The SDE of SV is: dv_t = mr * (theta - v_t) dt + vov * v_t dB_T, v as sigma
 	"""
 
 	model_type = "LamSABR"
@@ -40,7 +40,7 @@ class GarchMcTimeDisc(sv.SvABC, sv.CondMcBsmABC):
 		sigma_(t+dt) = sigma_t + mr * (theta - sigma_t) * dt + vov * sigma_t Z * sqrt(dt) + (vov^2/2) sigma_t (Z^2-1) dt
 
 		Args:
-			vol_0: initial variance
+			vol_0: initial volatility
 			dt: delta t, time step
 			model_replace: if 'original': sigma_(t+dt) = sigma_t + mr * (theta - sigma_t) * dt + vov * sigma_t Z * sqrt(dt) + (vov^2/2) sigma_t (Z^2-1) dt
 			              if 'exp': theta + (sigma_t - theta) * exp(-mr * dt) + vov * sigma_t Z * sqrt(dt) + (vov^2/2) sigma_t (Z^2-1) dt
@@ -69,8 +69,8 @@ class GarchMcTimeDisc(sv.SvABC, sv.CondMcBsmABC):
 								+ (2 * mr_square * theta_square) / (mr - vov_square) / (
 										2 * mr - vov_square) * np.exp(-2 * mr * dt + vov_square * dt) \
 								+ 2 * mr * theta * vol_0 * np.exp(-mr * dt) / (mr - vov_square) \
-								- 2 * mr * theta / (mr - vov_square) * np.exp(-mr * dt) / (mr - vov_square) \
-								+ vol_0_square * np.exp(-mr * dt) / (mr - vov_square)
+								- 2 * mr * theta * vol_0 / (mr - vov_square) * np.exp(-2 * mr * dt + vov_square * dt) \
+								+ vol_0_square * np.exp(-2 * mr * dt + vov_square * dt)
 		exact_var = exact_mean_square - np.square(exact_mean)
 
 		# time discrimination for vol_t
@@ -91,51 +91,48 @@ class GarchMcTimeDisc(sv.SvABC, sv.CondMcBsmABC):
 		vol_t[vol_t < 0] = 0.0
 		return vol_t
 
-	def cond_spot_step(self, dt, vol_0, beta):
+	def spot_step_euler(self, dt, beta, vol_t, spot_0):
 		zz = self.rv_normal(spawn=0)
 
-		if self.scheme in [0, 1]:
-			milstein = (self.scheme == 1)
-			vol_t = self.vol_step_euler(dt, vol_0, milstein=milstein)
-
-			mean_vol = (vol_0 + vol_t) / 2
-			mean_inv_vol = (1 / vol_0 + 1 / vol_t) / 2
-
+		drift = vol_t * zz * np.sqrt(dt)
+		if beta == 0:
+			spot_t = spot_0 + drift
+		elif beta == 1:
+			spot_t_log = np.log(spot_0) + drift - 1 / 2 * vol_t ** 2 * dt
+			spot_t = np.exp(spot_t_log)
 		else:
-			raise ValueError(f'Invalid scheme: {self.scheme}')
+			spot_t_div = spot_0 / (-beta + 1) + drift - 1 / 2 * vol_t ** 2 * spot_0 ** (-beta + 1) * dt
+			spot_t = (-beta + 1) * spot_t_div
 
-		return vol_t, mean_vol
+		return spot_t
 
-	def cond_spot_sigma(self, texp, vol_0):
+	def cond_vol_step(self, texp, vol_0, spot_0, beta):
 		tobs = self.tobs(texp)
 		dt = np.diff(tobs, prepend=0)
 		n_dt = len(dt)
 
 		vol_t = np.full(self.n_path, vol_0)
-		avgvol = np.zeros(self.n_path)
+		spot_t = np.full(self.n_path, spot_0)
 
+		model_replace = 'exp'
+		milstein = (self.scheme == 1)
 		for i in range(n_dt):
-			vol_t, avgvol_inc, avgivol_inc = self.cond_states_step(dt[i], vol_t)
-			avgvol += avgvol_inc * dt[i]
+			vol_t = self.vol_step_euler(dt[i], vol_t, model_replace, milstein)
+			spot_t = self.spot_step_euler(dt[i], 1, vol_t, spot_t)
 
-		avgvol /= texp
-
-	# spot_cond = (vol_t - vol_0 - self.mr * self.theta * dt) / self.vov + \
-	# 			(-self.mr * self.theta * avgivol / self.vov \
-	# 			 + (self.mr / self.vov + self.vov / 4) * avgvol - self.rho * avgvar / 2) * texp
-	# np.exp(self.rho * spot_cond, out=spot_cond)
-	#
-	# cond_sigma = np.sqrt((1.0 - self.rho ** 2) / var_0 * avgvar)
-
-	# return spot_cond, cond_sigma
+		return vol_t, spot_t
 
 	def return_var_realized(self, texp, cond):
 		return None
 
 
-Path = GarchMcTimeDisc(sigma=0.2, theta=0.15)
+Path = LambdaSABRhMcTimeDisc(sigma=0.2, theta=0.15)
 vol1 = Path.set_num_params
 vol21 = Path.vol_step_euler(0.25, 0.2, 'original', 1)
 vol22 = Path.vol_step_euler(0.25, 0.2, 'exp', 1)
 vol23 = Path.vol_step_euler(0.25, 0.2, 'exact', 1)
+
+vol, spot = Path.cond_vol_step(1, 0.2, 100, 1)
+vol212 = Path.cond_vol_step(1000, 0.2)
+
 print(vol21)
