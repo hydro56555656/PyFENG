@@ -1,4 +1,6 @@
 import numpy as np
+import pandas as pd
+
 from pyfeng import sv_abc as sv
 from pyfeng import bsm
 
@@ -34,23 +36,7 @@ class LambdaSABRhMcTimeDisc(sv.SvABC, sv.CondMcBsmABC):
 		super().set_num_params(n_path, dt, rn_seed, antithetic)
 		self.scheme = scheme
 
-	def vol_step_euler(self, dt, vol_0, model_replace='original', milstein=True):
-		"""
-		Euler/Milstein Schemes:
-		sigma_(t+dt) = sigma_t + mr * (theta - sigma_t) * dt + vov * sigma_t Z * sqrt(dt) + (vov^2/2) sigma_t (Z^2-1) dt
-
-		Args:
-			vol_0: initial volatility
-			dt: delta t, time step
-			model_replace: if 'original': sigma_(t+dt) = sigma_t + mr * (theta - sigma_t) * dt + vov * sigma_t Z * sqrt(dt) + (vov^2/2) sigma_t (Z^2-1) dt
-			              if 'exp': theta + (sigma_t - theta) * exp(-mr * dt) + vov * sigma_t Z * sqrt(dt) + (vov^2/2) sigma_t (Z^2-1) dt
-			              if 'exact' :  theta * (1-exp(-mr * dt)) + sigma_t * exp(-mr * dt) + vov * sigma_t Z * sqrt(dt) + (vov^2/2) sigma_t (Z^2-1) dt
-
-		Returns: Variance path (time, path) including the value at t=0
-		"""
-
-		zz = self.rv_normal(spawn=0)
-
+	def exact_mean_variance(self, vol_0, dt):
 		mr, theta, vov = self.mr, self.theta, self.vov
 		mr_square, theta_square, vov_square = np.square(mr), np.square(theta), np.square(vov)
 		vol_0_square = np.square(vol_0)
@@ -72,6 +58,27 @@ class LambdaSABRhMcTimeDisc(sv.SvABC, sv.CondMcBsmABC):
 								- 2 * mr * theta * vol_0 / (mr - vov_square) * np.exp(-2 * mr * dt + vov_square * dt) \
 								+ vol_0_square * np.exp(-2 * mr * dt + vov_square * dt)
 		exact_var = exact_mean_square - np.square(exact_mean)
+		return exact_mean, exact_var
+
+	def vol_step_euler(self, dt, vol_0, model_replace='original', milstein=True):
+		"""
+		Euler/Milstein Schemes:
+		sigma_(t+dt) = sigma_t + mr * (theta - sigma_t) * dt + vov * sigma_t Z * sqrt(dt) + (vov^2/2) sigma_t (Z^2-1) dt
+
+		Args:
+			vol_0: initial volatility
+			dt: delta t, time step
+			model_replace: if 'original': sigma_(t+dt) = sigma_t + mr * (theta - sigma_t) * dt + vov * sigma_t Z * sqrt(dt) + (vov^2/2) sigma_t (Z^2-1) dt
+			              if 'exp': theta + (sigma_t - theta) * exp(-mr * dt) + vov * sigma_t Z * sqrt(dt) + (vov^2/2) sigma_t (Z^2-1) dt
+			              if 'exact' :  theta * (1-exp(-mr * dt)) + sigma_t * exp(-mr * dt) + vov * sigma_t Z * sqrt(dt) + (vov^2/2) sigma_t (Z^2-1) dt
+
+		Returns: Variance path (time, path) including the value at t=0
+		"""
+
+		zz = self.rv_normal(spawn=0)
+
+		mr, theta, vov = self.mr, self.theta, self.vov
+		exact_mean, exact_var = self.exact_mean_variance(vol_0, dt)
 
 		# time discrimination for vol_t
 		if model_replace == 'original':
@@ -79,7 +86,7 @@ class LambdaSABRhMcTimeDisc(sv.SvABC, sv.CondMcBsmABC):
 		elif model_replace == 'exp':
 			vol_t = theta + (vol_0 - theta) * np.exp(-mr * dt) + vov * vol_0 * np.sqrt(dt) * zz
 		elif model_replace == 'exact':
-			vol_t = exact_mean + exact_var * zz
+			vol_t = exact_mean + np.sqrt(exact_var) * zz
 		else:
 			raise Exception('model_replace input wrong')
 
@@ -106,7 +113,7 @@ class LambdaSABRhMcTimeDisc(sv.SvABC, sv.CondMcBsmABC):
 
 		return spot_t
 
-	def cond_vol_step(self, texp, vol_0, spot_0, beta):
+	def cond_vol_step(self, texp, vol_0, spot_0, beta, model='exp'):
 		tobs = self.tobs(texp)
 		dt = np.diff(tobs, prepend=0)
 		n_dt = len(dt)
@@ -114,24 +121,50 @@ class LambdaSABRhMcTimeDisc(sv.SvABC, sv.CondMcBsmABC):
 		vol_t = np.full(self.n_path, vol_0)
 		spot_t = np.full(self.n_path, spot_0)
 
-		model_replace = 'exp'
 		milstein = (self.scheme == 1)
 		for i in range(n_dt):
-			vol_t = self.vol_step_euler(dt[i], vol_t, model_replace, milstein)
-			spot_t = self.spot_step_euler(dt[i], 1, vol_t, spot_t)
+			vol_t = self.vol_step_euler(dt[i], vol_t, model, milstein)
+			spot_t = self.spot_step_euler(dt[i], beta, vol_t, spot_t)
 
 		return vol_t, spot_t
+
+	def exact_mv_bsm(self, texp, vol_0, spot_0):
+
+		return
+
+	def cond_spot_sigma(self, texp, var_0):
+		return NotImplementedError
 
 	def return_var_realized(self, texp, cond):
 		return None
 
 
 Path = LambdaSABRhMcTimeDisc(sigma=0.2, theta=0.15)
-vol1 = Path.set_num_params
+Path.set_num_params()
 vol21 = Path.vol_step_euler(0.25, 0.2, 'original', 1)
 vol22 = Path.vol_step_euler(0.25, 0.2, 'exp', 1)
 vol23 = Path.vol_step_euler(0.25, 0.2, 'exact', 1)
 
-vol, spot = Path.cond_vol_step(1, 0.2, 100, 1)
+vol, spot = Path.cond_vol_step(1, 0.2, 100, 1, 'original')
+vol1, spot1 = Path.cond_vol_step(1, 0.2, 100, 1, 'exp')
+vol2, spot2 = Path.cond_vol_step(1, 0.2, 100, 1, 'exact')
+vol_mean, vol_mean1, vol_mean2 = np.mean(vol), np.mean(vol1), np.mean(vol2)
+spot_mean, spot_mean1, spot_mean2 = np.mean(spot), np.mean(spot1), np.mean(spot2)
 
-print(vol21)
+
+# implied volatility
+model_method = "original"
+intr = 0.02
+m_bsm = bsm.Bsm(sigma=0.2, intr=intr)
+impvol = pd.DataFrame(0, index=[90, 95, 100, 105, 110], columns=[0.1, 0.25, 0.5, 1, 2])
+for strike in [90, 95, 100, 105, 110]:
+	for texp in [0.1, 0.25, 0.5, 1, 2]:
+		if model_method == 'original':
+			price = spot_mean * np.exp(-intr * texp) - strike
+		elif model_method == 'exp':
+			price = spot_mean1 * np.exp(-intr * texp) - strike
+		else:
+			price = spot_mean2 * np.exp(-intr * texp) - strike
+		impvol.loc[strike, texp] = m_bsm.impvol(price, strike, 100, texp)
+
+

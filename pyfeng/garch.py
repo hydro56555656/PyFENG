@@ -209,9 +209,3 @@ class GarchMcTimeDisc(sv.SvABC, sv.CondMcBsmABC):
 		return None
 
 
-Path = GarchMcTimeDisc(sigma=0.2, theta=0.15)
-vol1 = Path.set_num_params
-vol2 = Path.vol_step_euler(0.025, 0.2, 1)
-var_t, mean_var, mean_vol, mean_inv_vol = Path.cond_states_step(0.025, 0.2)
-spot_cond, cond_sigma = Path.cond_spot_sigma(10, 0.2)
-print(vol2)
